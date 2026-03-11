@@ -19,7 +19,7 @@ For comment additions:
 
 2. After saving the comment variable, run the Add-CopilotComment.ps1 script and pass in the comment as a parameter. You should also explicitly pass a `-Status` parameter indicating whether the comment should create an open thread (`Active`) or a resolved thread (`Closed`).
 
-For file-specific feedback, use inline comments by providing the `-FilePath` and `-StartLine` parameters. You may also provide `-EndLine` for multi-line comments (defaults to `-StartLine` if omitted). Line numbers should reference the current (changed) version of the file, not the original. Example:
+For file-specific feedback, use inline comments by providing the `-FilePath` and `-StartLine` parameters. You may also provide `-EndLine` for multi-line comments (defaults to `-StartLine` if omitted). `-EndLine` is inclusive — it should be the last line of the changed code, not the line after it. Line numbers should reference the current (changed) version of the file, not the original. Example:
 
 .\scripts\Add-CopilotComment.ps1 -Comment $comment -Status 'Active' -FilePath '/src/MyProject/Program.cs' -StartLine 42 -EndLine 45
 
