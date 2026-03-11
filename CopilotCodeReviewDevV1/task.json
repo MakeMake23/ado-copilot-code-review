@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/Microsoft/azure-pipelines-task-lib/master/tasks.schema.json",
-  "id": "e9b25f4d-a123-4567-c890-7d3e2b1fa8c4",
+  "id": "41569F01-B8FE-4D8D-9EF0-64B80624607B",
   "name": "CopilotCodeReviewDevAng031",
   "friendlyName": "Copilot Code Review (Dev ANG031-Diyar)",
   "description": "[Development Build] Perform automated code reviews on pull requests using the official GitHub Copilot CLI",
