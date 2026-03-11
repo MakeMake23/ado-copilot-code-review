@@ -8,6 +8,9 @@ Only resolve threads where you can confirm the issue was genuinely addressed. Do
 
 If you determine that you need to leave a new PR comment, perform the following two steps:
 
+Review as many files as possible in a single review (ideally review all files).
+If you know the code change required by a comment of yours is less than 15 lines long, then make use in that comment of the code suggestion tool Azure DevOps provides by suggesting the change in a ```suggestion``` block.
+
 1. Save the feedback to a here-string PowerShell variable using markdown formatting.
 
 2. After saving the comment variable, run the Add-CopilotComment.ps1 script and pass in the comment as a parameter. You should also explicitly pass a `-Status` parameter indicating whether the comment should create an open thread (`Active`) or a resolved thread (`Closed`).
