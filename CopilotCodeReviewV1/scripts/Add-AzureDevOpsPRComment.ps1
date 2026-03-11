@@ -328,7 +328,7 @@ else {
             }
             rightFileEnd   = @{
                 line   = $effectiveEndLine
-                offset = 1
+                offset = 9999
             }
         }
         
