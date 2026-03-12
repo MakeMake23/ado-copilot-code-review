@@ -123,4 +123,4 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "`nNext steps:" -ForegroundColor White
 Write-Host "1. Upload the .vsix file to the Marketplace management portal" -ForegroundColor Gray
 Write-Host "2. Share the extension with your test organization" -ForegroundColor Gray
-Write-Host "3. Install and test in your pipelines using 'CopilotCodeReviewDev@0'" -ForegroundColor Gray
+Write-Host "3. Install and test in your pipelines using 'CopilotCodeReviewDevAng031@0'" -ForegroundColor Gray
