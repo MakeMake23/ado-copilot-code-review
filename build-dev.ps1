@@ -39,7 +39,7 @@ if (-not $SkipBuild) {
     Write-Host "`n[Step 1/4] Building TypeScript..." -ForegroundColor Yellow
     Push-Location $prodTaskDir
     try {
-        pnpm run build
+        npm run build
         if ($LASTEXITCODE -ne 0) {
             throw "TypeScript build failed"
         }
@@ -88,7 +88,7 @@ if (Test-Path $nodeModulesDir) {
     Write-Host "  Copied: node_modules/" -ForegroundColor Gray
 }
 else {
-    throw "node_modules not found. Run 'pnpm install' in CopilotCodeReviewV1 first."
+    throw "node_modules not found. Run 'npm install' in CopilotCodeReviewV1 first."
 }
 
 Write-Host "Files copied to dev task folder." -ForegroundColor Green
@@ -98,7 +98,7 @@ Write-Host "`n[Step 3/4] Checking tfx-cli installation..." -ForegroundColor Yell
 $tfxInstalled = Get-Command tfx -ErrorAction SilentlyContinue
 if (-not $tfxInstalled) {
     Write-Host "Installing tfx-cli globally..." -ForegroundColor Gray
-    pnpm install -g tfx-cli
+    npm install -g tfx-cli
 }
 else {
     Write-Host "tfx-cli is already installed." -ForegroundColor Gray
