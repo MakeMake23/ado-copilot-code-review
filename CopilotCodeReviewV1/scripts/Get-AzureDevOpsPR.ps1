@@ -328,6 +328,13 @@ if ($Id -gt 0) {
         $Repository = $targetPR.repository.name
     }
     
+    # Write discovered repository name to a file so that the Node runner knows what repository it is using
+    if ($script:OutputToFile) {
+        $outputDir = Split-Path -Parent $OutputFile
+        $repoFile = Join-Path $outputDir "Repository_Name.txt"
+        $Repository | Out-File -FilePath $repoFile -Encoding UTF8 -NoNewline
+    }
+    
     # Get detailed PR information
     $prUrl = "$baseUrl/git/repositories/$Repository/pullrequests/$Id`?$apiVersion"
     $pr = Invoke-AzureDevOpsApi -Uri $prUrl -Headers $headers

@@ -66,8 +66,7 @@
       "type": "string",
       "label": "Repository",
       "required": false,
-      "defaultValue": "$(Build.Repository.Name)",
-      "helpMarkDown": "The repository name where the pull request exists. Defaults to $(Build.Repository.Name)."
+      "helpMarkDown": "The repository name where the pull request exists. If left blank, the task will auto-discover the repository."
     },
     {
       "name": "pullRequestId",
