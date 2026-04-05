@@ -99,8 +99,7 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$Project,
 
-    [Parameter(Mandatory = $true, HelpMessage = "Repository name")]
-    [ValidateNotNullOrEmpty()]
+    [Parameter(Mandatory = $false, HelpMessage = "Repository name")]
     [string]$Repository,
 
     [Parameter(Mandatory = $true, HelpMessage = "Pull request ID")]
@@ -131,88 +130,10 @@ param(
     [int]$IterationId
 )
 
-#region Helper Functions
+# Dot-source common helper functions
+. "$PSScriptRoot\Common.ps1"
 
-function Get-AuthorizationHeader {
-    param(
-        [string]$Token,
-        [string]$AuthType = "Basic"
-    )
-    
-    if ($AuthType -eq "Bearer") {
-        return @{
-            Authorization  = "Bearer $Token"
-            "Content-Type" = "application/json"
-        }
-    }
-    else {
-        $base64Auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$Token"))
-        return @{
-            Authorization  = "Basic $base64Auth"
-            "Content-Type" = "application/json"
-        }
-    }
-}
-
-function Invoke-AzureDevOpsApi {
-    param(
-        [string]$Uri,
-        [hashtable]$Headers,
-        [string]$Method = "Get",
-        [object]$Body = $null
-    )
-    
-    try {
-        $params = @{
-            Uri         = $Uri
-            Headers     = $Headers
-            Method      = $Method
-            ErrorAction = "Stop"
-        }
-        
-        if ($null -ne $Body) {
-            $params.Body = $Body | ConvertTo-Json -Depth 10
-        }
-        
-        $response = Invoke-RestMethod @params
-        return $response
-    }
-    catch {
-        $statusCode = $null
-        $errorDetail = $null
-
-        if ($_.Exception.Response) {
-            $statusCode = $_.Exception.Response.StatusCode.value__
-        }
-        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
-            $errorDetail = $_.ErrorDetails.Message
-        }
-
-        # Build a descriptive error message with all available context
-        $baseMsg = "Azure DevOps API error"
-        if ($statusCode) {
-            $baseMsg += " (HTTP $statusCode)"
-        }
-        $baseMsg += " calling $Method $Uri"
-
-        if ($statusCode -eq 401) {
-            Write-Error "$baseMsg — Authentication failed. Please verify your token is valid and has appropriate permissions. API response: $errorDetail"
-        }
-        elseif ($statusCode -eq 404) {
-            Write-Error "$baseMsg — Resource not found. Please verify the organization, project, repository, and PR ID. API response: $errorDetail"
-        }
-        elseif ($statusCode -eq 400) {
-            Write-Error "$baseMsg — Bad request. API response: $errorDetail"
-        }
-        elseif ($statusCode) {
-            Write-Error "$baseMsg — API response: $errorDetail"
-        }
-        else {
-            Write-Error "$baseMsg — $($_.Exception.Message)"
-        }
-        return $null
-    }
-}
+#region Local Helper Functions (not in Common.ps1)
 
 function Get-ThreadStatusValue {
     param([string]$StatusName)
@@ -246,6 +167,9 @@ function Format-AzureDevOpsFilePath {
 #region Main Logic
 
 $headers = Get-AuthorizationHeader -Token $Token -AuthType $AuthType
+
+$Repository = Get-AzureDevOpsRepository -Repository $Repository -CollectionUri $CollectionUri -Project $Project -PrId $Id -Headers $headers
+
 $baseUrl = "$CollectionUri/$Project/_apis/git/repositories/$Repository/pullrequests/$Id"
 $apiVersion = "api-version=7.1"
 

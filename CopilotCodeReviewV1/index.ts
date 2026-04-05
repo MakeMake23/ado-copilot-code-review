@@ -171,6 +171,10 @@ async function run(): Promise<void> {
     const promptRaw = tl.getInput("promptRaw");
     const promptFileRaw = tl.getInput("promptFileRaw");
 
+    if (!repository || repository === "undefined") {
+      repository = "";
+    }
+
     // If PR ID not provided, try to get from pipeline variable
     if (!pullRequestId) {
       pullRequestId = tl.getVariable("System.PullRequest.PullRequestId");
@@ -391,6 +395,7 @@ async function run(): Promise<void> {
       "Add-AzureDevOpsPRComment.ps1",
     );
     const commentScriptSource = path.join(scriptsDir, "Add-CopilotComment.ps1");
+    const commonScriptSource = path.join(scriptsDir, "Common.ps1");
     const updateCommentScriptSource = path.join(
       scriptsDir,
       "Update-CopilotComment.ps1",
@@ -407,6 +412,7 @@ async function run(): Promise<void> {
       workingDirectory,
       "Add-CopilotComment.ps1",
     );
+    const commonScriptDest = path.join(workingDirectory, "Common.ps1");
     const updateCommentScriptDest = path.join(
       workingDirectory,
       "Update-CopilotComment.ps1",
@@ -421,6 +427,8 @@ async function run(): Promise<void> {
     );
     fs.copyFileSync(commentScriptSource, commentScriptDest);
     console.log(`Copied Add-CopilotComment.ps1 to: ${commentScriptDest}`);
+    fs.copyFileSync(commonScriptSource, commonScriptDest);
+    console.log(`Copied Common.ps1 to: ${commonScriptDest}`);
     fs.copyFileSync(updateCommentScriptSource, updateCommentScriptDest);
     console.log(
       `Copied Update-CopilotComment.ps1 to: ${updateCommentScriptDest}`,

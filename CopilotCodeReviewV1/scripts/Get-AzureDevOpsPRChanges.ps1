@@ -73,7 +73,10 @@ param(
     [string]$OutputFile
 )
 
-#region Helper Functions
+# Dot-source common helper functions
+. "$PSScriptRoot\Common.ps1"
+
+#region Local Helper Functions (not in Common.ps1)
 
 function Write-Output-Line {
     param(
@@ -83,11 +86,19 @@ function Write-Output-Line {
     )
     
     if ($script:OutputToFile) {
+        if ($null -eq $script:OutputLines) { $script:OutputLines = @() }
+        
         if ($NoNewline) {
-            $script:OutputBuilder.Append($Message) | Out-Null
+            # For NoNewline, we append to the last line if possible
+            if ($script:OutputLines.Count -eq 0) {
+                $script:OutputLines += $Message
+            } else {
+                $lastIdx = $script:OutputLines.Count - 1
+                $script:OutputLines[$lastIdx] += $Message
+            }
         }
         else {
-            $script:OutputBuilder.AppendLine($Message) | Out-Null
+            $script:OutputLines += $Message
         }
     }
     
@@ -99,98 +110,16 @@ function Write-Output-Line {
     }
 }
 
-function Get-AuthorizationHeader {
-    param(
-        [string]$Token,
-        [string]$AuthType = "Basic"
-    )
-    
-    if ($AuthType -eq "Bearer") {
-        return @{
-            Authorization  = "Bearer $Token"
-            "Content-Type" = "application/json"
-        }
-    }
-    else {
-        $base64Auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$Token"))
-        return @{
-            Authorization  = "Basic $base64Auth"
-            "Content-Type" = "application/json"
-        }
-    }
-}
-
-function Invoke-AzureDevOpsApi {
-    param(
-        [string]$Uri,
-        [hashtable]$Headers,
-        [string]$Method = "Get"
-    )
-    
-    try {
-        $response = Invoke-RestMethod -Uri $Uri -Headers $Headers -Method $Method -ErrorAction Stop
-        return $response
-    }
-    catch {
-        $statusCode = $null
-        $errorDetail = $null
-
-        if ($_.Exception.Response) {
-            $statusCode = $_.Exception.Response.StatusCode.value__
-        }
-        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
-            $errorDetail = $_.ErrorDetails.Message
-        }
-
-        # Build a descriptive error message with all available context
-        $baseMsg = "Azure DevOps API error"
-        if ($statusCode) {
-            $baseMsg += " (HTTP $statusCode)"
-        }
-        $baseMsg += " calling $Method $Uri"
-
-        if ($statusCode -eq 401) {
-            Write-Error "$baseMsg — Authentication failed. Please verify your token is valid and has appropriate permissions. API response: $errorDetail"
-        }
-        elseif ($statusCode -eq 404) {
-            Write-Error "$baseMsg — Resource not found. Please verify the organization, project, repository, and PR ID. API response: $errorDetail"
-        }
-        elseif ($statusCode) {
-            Write-Error "$baseMsg — API response: $errorDetail"
-        }
-        else {
-            Write-Error "$baseMsg — $($_.Exception.Message)"
-        }
-        return $null
-    }
-}
-
-function Format-DateForDisplay {
-    param([string]$DateString)
-    
-    if ([string]::IsNullOrEmpty($DateString)) {
-        return "N/A"
-    }
-    
-    try {
-        $date = [DateTime]::Parse($DateString)
-        return $date.ToString("yyyy-MM-dd HH:mm:ss")
-    }
-    catch {
-        return $DateString
-    }
-}
-
 function Get-ChangeTypeDisplay {
     param([string]$ChangeType)
     
     switch ($ChangeType) {
-        "add"      { return @{ Text = "Added"; Color = "Green" } }
-        "edit"     { return @{ Text = "Modified"; Color = "Yellow" } }
-        "delete"   { return @{ Text = "Deleted"; Color = "Red" } }
-        "rename"   { return @{ Text = "Renamed"; Color = "Cyan" } }
-        "copy"     { return @{ Text = "Copied"; Color = "Cyan" } }
-        default    { return @{ Text = $ChangeType; Color = "White" } }
+        "add" { return @{ Text = "Added"; Color = "Green" } }
+        "edit" { return @{ Text = "Modified"; Color = "Yellow" } }
+        "delete" { return @{ Text = "Deleted"; Color = "Red" } }
+        "rename" { return @{ Text = "Renamed"; Color = "Cyan" } }
+        "copy" { return @{ Text = "Copied"; Color = "Cyan" } }
+        default { return @{ Text = $ChangeType; Color = "White" } }
     }
 }
 
@@ -200,35 +129,38 @@ function Get-ChangeTypeDisplay {
 
 # Initialize output handling
 $script:OutputToFile = -not [string]::IsNullOrEmpty($OutputFile)
-$script:OutputBuilder = [System.Text.StringBuilder]::new()
+$script:OutputLines = @()
 
 $headers = Get-AuthorizationHeader -Token $Token -AuthType $AuthType
+
+$Repository = Get-AzureDevOpsRepository -Repository $Repository -CollectionUri $CollectionUri -Project $Project -PrId $Id -Headers $headers
 $baseUrl = "$CollectionUri/$Project/_apis/git/repositories/$Repository/pullrequests/$Id"
 $apiVersion = "api-version=7.1"
 
-# Verify the PR exists
-Write-Host "`nRetrieving pull request #$Id..." -ForegroundColor Cyan
-$prUrl = "$baseUrl`?$apiVersion"
-$pr = Invoke-AzureDevOpsApi -Uri $prUrl -Headers $headers
+# Verify the PR exists and get details
+Write-Host "`nRetrieving Pull Request #$Id from repository '$Repository'..." -ForegroundColor Cyan
+$pr = Invoke-AzureDevOpsApi -Uri "$baseUrl`?$apiVersion" -Headers $headers
 
 if ($null -eq $pr) {
-    Write-Error "Failed to retrieve pull request #$Id from repository '$Repository'. See the error above for details."
+    Write-Error "Failed to retrieve pull request #$Id from repository '$Repository'."
     exit 1
 }
 
 Write-Host "Found PR: $($pr.title)" -ForegroundColor Green
-Write-Host "Status: $($pr.status.ToUpper())" -ForegroundColor $(if ($pr.status -eq "active") { "Green" } else { "Yellow" })
+$prStatusColor = if ($pr.status -eq "active") { "Green" } else { "Yellow" }
+Write-Host "Status: $($pr.status.ToUpper())" -ForegroundColor $prStatusColor
 
 # Get iterations
 Write-Host "`nRetrieving iterations..." -ForegroundColor Cyan
 $iterationsUrl = "$baseUrl/iterations?$apiVersion"
 $iterations = Invoke-AzureDevOpsApi -Uri $iterationsUrl -Headers $headers
 
-if ($null -eq $iterations -or $iterations.count -eq 0) {
+if ($null -eq $iterations -or $null -eq $iterations.count -or $iterations.count -eq 0) {
     Write-Warning "No iterations found for this pull request."
     exit 0
 }
 
+# Sort iterations by ID descending to get the latest
 $latestIteration = $iterations.value | Sort-Object -Property id -Descending | Select-Object -First 1
 $iterationId = $latestIteration.id
 
@@ -241,32 +173,28 @@ $commits = Invoke-AzureDevOpsApi -Uri $commitsUrl -Headers $headers
 
 # Get changes for the latest iteration
 Write-Host "Retrieving changes for iteration #$iterationId..." -ForegroundColor Cyan
-$changesUrl = "$baseUrl/iterations/$iterationId/changes?$apiVersion"
-$changes = Invoke-AzureDevOpsApi -Uri $changesUrl -Headers $headers
+$iterationChangesUrl = "$baseUrl/iterations/$iterationId/changes?$apiVersion"
+$changes = Invoke-AzureDevOpsApi -Uri $iterationChangesUrl -Headers $headers
 
-# Display results
+# --- Output Results ---
+
 Write-Output-Line ("`n" + ("=" * 80)) -ForegroundColor DarkGray
-Write-Output-Line "PULL REQUEST CHANGES - ITERATION #$iterationId" -ForegroundColor Green
+Write-Output-Line "PULL REQUEST CHANGES (Iteration #$iterationId)" -ForegroundColor Green
 Write-Output-Line ("=" * 80) -ForegroundColor DarkGray
 
-# Iteration Info
-Write-Output-Line "`n[Iteration Details]" -ForegroundColor Yellow
-Write-Output-Line "  Iteration ID:     #$iterationId"
-Write-Output-Line "  Created:          $(Format-DateForDisplay $latestIteration.createdDate)"
-Write-Output-Line "  Updated:          $(Format-DateForDisplay $latestIteration.updatedDate)"
-if ($latestIteration.sourceRefCommit) {
-    Write-Output-Line "  Source Commit:    $($latestIteration.sourceRefCommit.commitId.Substring(0, 8))"
-}
-if ($latestIteration.targetRefCommit) {
-    Write-Output-Line "  Target Commit:    $($latestIteration.targetRefCommit.commitId.Substring(0, 8))"
-}
+Write-Output-Line "`n[Pull Request]" -ForegroundColor Yellow
+Write-Output-Line "  Title:           $($pr.title)"
+Write-Output-Line "  Status:          $($pr.status.ToUpper())" -ForegroundColor $prStatusColor
+Write-Output-Line "  Author:          $($pr.createdBy.displayName)"
+Write-Output-Line "  Source Branch:   $($pr.sourceRefName -replace '^refs/heads/', '')"
+Write-Output-Line "  Target Branch:   $($pr.targetRefName -replace '^refs/heads/', '')"
 
 # Commits
-Write-Output-Line "`n[Commits in this PR]" -ForegroundColor Yellow
+Write-Output-Line "`n[Latest Commits]" -ForegroundColor Yellow
 if ($commits -and $commits.value -and $commits.value.Count -gt 0) {
-    Write-Output-Line "  Total commits: $($commits.value.Count)`n"
-    
-    foreach ($commit in $commits.value) {
+    # Only show top 10 commits
+    $commitsToShow = $commits.value | Select-Object -First 10
+    foreach ($commit in $commitsToShow) {
         $shortId = $commit.commitId.Substring(0, 8)
         $message = $commit.comment -split "`n" | Select-Object -First 1
         if ($message.Length -gt 60) {
@@ -274,6 +202,10 @@ if ($commits -and $commits.value -and $commits.value.Count -gt 0) {
         }
         Write-Output-Line "  $shortId - $message" -ForegroundColor Cyan
         Write-Output-Line "           Author: $($commit.author.name) | $(Format-DateForDisplay $commit.author.date)" -ForegroundColor DarkGray
+    }
+    
+    if ($commits.value.Count -gt 10) {
+        Write-Output-Line "  ... and $($commits.value.Count - 10) more commits." -ForegroundColor DarkGray
     }
 }
 else {
@@ -284,16 +216,19 @@ else {
 Write-Output-Line "`n[Changed Files]" -ForegroundColor Yellow
 if ($changes -and $changes.changeEntries -and $changes.changeEntries.Count -gt 0) {
     # Group by change type for summary
-    $addedCount = ($changes.changeEntries | Where-Object { $_.changeType -eq "add" }).Count
-    $modifiedCount = ($changes.changeEntries | Where-Object { $_.changeType -eq "edit" }).Count
-    $deletedCount = ($changes.changeEntries | Where-Object { $_.changeType -eq "delete" }).Count
-    $otherCount = $changes.changeEntries.Count - $addedCount - $modifiedCount - $deletedCount
-    
-    Write-Output-Line "  Total files changed: $($changes.changeEntries.Count)"
-    $summaryLine = "  +$addedCount added | ~$modifiedCount modified | -$deletedCount deleted"
+    $entries = @($changes.changeEntries)
+    $addedCount = ($entries | Where-Object { $_.changeType -eq "add" }).Count
+    $modifiedCount = ($entries | Where-Object { $_.changeType -eq "edit" }).Count
+    $deletedCount = ($entries | Where-Object { $_.changeType -eq "delete" }).Count
+    $renameCount = ($entries | Where-Object { $_.changeType -eq "rename" }).Count
+    $otherCount = $entries.Count - $addedCount - $modifiedCount - $deletedCount - $renameCount
+
+    $summaryLine = "  Total files: $($entries.Count) (+$addedCount, ~$modifiedCount, -$deletedCount, R$renameCount"
     if ($otherCount -gt 0) {
-        $summaryLine += " | $otherCount other"
+        $summaryLine += ", $otherCount other"
     }
+    $summaryLine += ")"
+
     Write-Output-Line $summaryLine
     Write-Output-Line ""
     
@@ -320,7 +255,7 @@ Write-Output-Line ("`n" + ("=" * 80)) -ForegroundColor DarkGray
 $webUrl = "$CollectionUri/$Project/_git/$Repository/pullrequest/$Id"
 Write-Host "`nView PR: $webUrl" -ForegroundColor Cyan
 if ($script:OutputToFile) {
-    $script:OutputBuilder.AppendLine("`nView PR: $webUrl") | Out-Null
+    $script:OutputLines += "`nView PR: $webUrl"
 }
 
 # Write to output file if specified
@@ -330,7 +265,7 @@ if ($script:OutputToFile) {
         if (-not [string]::IsNullOrEmpty($outputDir) -and -not (Test-Path $outputDir)) {
             New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
         }
-        $script:OutputBuilder.ToString() | Out-File -FilePath $OutputFile -Encoding UTF8
+        $script:OutputLines | Out-File -FilePath $OutputFile -Encoding UTF8
         Write-Host "`nOutput written to: $OutputFile" -ForegroundColor Green
         
         # Also write the iteration ID to a separate file for use by other scripts

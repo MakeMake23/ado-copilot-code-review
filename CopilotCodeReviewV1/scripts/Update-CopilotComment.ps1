@@ -69,6 +69,9 @@ param(
     [string]$Content
 )
 
+# Dot-source common helper functions
+. "$PSScriptRoot\Common.ps1"
+
 # Wrap entire script in try/catch for silent failure
 try {
     # Validate that at least one update is requested
@@ -108,26 +111,10 @@ try {
         exit 0
     }
 
-    # Default auth type if not specified
-    if ([string]::IsNullOrEmpty($authType)) {
-        $authType = "Basic"
-    }
+    # Build authorization headers
+    $headers = Get-AuthorizationHeader -Token $token -AuthType $authType
 
-    # Build authorization header
-    if ($authType -eq "Bearer") {
-        $headers = @{
-            Authorization  = "Bearer $token"
-            "Content-Type" = "application/json"
-        }
-    }
-    else {
-        $base64Auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$token"))
-        $headers = @{
-            Authorization  = "Basic $base64Auth"
-            "Content-Type" = "application/json"
-        }
-    }
-
+    # Build the API URL for updating a comment
     $baseUrl = "$collectionUri/$project/_apis"
 
     # Update thread status if specified
@@ -143,18 +130,18 @@ try {
         $apiStatus = $statusMap[$Status]
 
         $threadUri = "$baseUrl/git/repositories/$repository/pullrequests/$prId/threads/$ThreadId`?api-version=7.1"
-        $threadBody = @{ status = $apiStatus } | ConvertTo-Json
-
-        $response = Invoke-RestMethod -Uri $threadUri -Headers $headers -Method Patch -Body $threadBody -ErrorAction Stop
+        $threadBody = @{ status = $apiStatus }
+        
+        [void](Invoke-AzureDevOpsApi -Uri $threadUri -Headers $headers -Method Patch -Body $threadBody -ErrorAction Stop)
         Write-Host "Thread #$ThreadId status updated to '$Status'" -ForegroundColor Green
     }
 
     # Update comment content if specified
     if (-not [string]::IsNullOrEmpty($Content) -and $CommentId -gt 0) {
         $commentUri = "$baseUrl/git/repositories/$repository/pullrequests/$prId/threads/$ThreadId/comments/$CommentId`?api-version=7.1"
-        $commentBody = @{ content = $Content } | ConvertTo-Json
+        $commentBody = @{ content = $Content }
 
-        $response = Invoke-RestMethod -Uri $commentUri -Headers $headers -Method Patch -Body $commentBody -ErrorAction Stop
+        [void](Invoke-AzureDevOpsApi -Uri $commentUri -Headers $headers -Method Patch -Body $commentBody -ErrorAction Stop)
         Write-Host "Comment #$CommentId in thread #$ThreadId content updated" -ForegroundColor Green
     }
 }

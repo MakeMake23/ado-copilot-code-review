@@ -49,6 +49,9 @@ param(
     [int]$CommentId
 )
 
+# Dot-source common helper functions
+. "$PSScriptRoot\Common.ps1"
+
 # Wrap entire script in try/catch for silent failure
 try {
     # Read credentials from environment variables
@@ -76,60 +79,34 @@ try {
         exit 0
     }
 
-    # Default auth type if not specified
-    if ([string]::IsNullOrEmpty($authType)) {
-        $authType = "Basic"
-    }
+    $headers = Get-AuthorizationHeader -Token $token -AuthType $authType
 
-    # Build authorization header
-    if ($authType -eq "Bearer") {
-        $headers = @{
-            Authorization  = "Bearer $token"
-            "Content-Type" = "application/json"
-        }
-    }
-    else {
-        $base64Auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$token"))
-        $headers = @{
-            Authorization  = "Basic $base64Auth"
-            "Content-Type" = "application/json"
-        }
-    }
-
-    # Build the API URL for deleting a comment
     $baseUrl = "$collectionUri/$project/_apis"
     $uri = "$baseUrl/git/repositories/$repository/pullrequests/$prId/threads/$ThreadId/comments/$CommentId`?api-version=7.1"
-
-    # Send DELETE request
-    $response = Invoke-RestMethod -Uri $uri -Headers $headers -Method Delete -ErrorAction Stop
-
+    
+    [void](Invoke-AzureDevOpsApi -Uri $uri -Headers $headers -Method Delete -ErrorAction Stop)
+    
     # Log success (visible in pipeline logs but doesn't affect workflow)
     Write-Host "Comment #$CommentId in thread #$ThreadId deleted" -ForegroundColor Green
 }
 catch {
-    # Non-blocking failure - log detailed error info but don't fail the pipeline
-    $errorMsg = "Delete-CopilotComment: Could not delete comment #$CommentId in thread #$ThreadId"
-
-    $statusCode = $null
-    $errorDetail = $null
+    # Non-blocking failure - log detailed error info as a warning so it doesn't fail the pipeline
+    $errorHeader = "Delete-CopilotComment: Could not delete comment #$CommentId in thread #$ThreadId"
+    
+    # Extract detailed error information if available
+    $errorDetail = ""
     if ($_.Exception.Response) {
         $statusCode = $_.Exception.Response.StatusCode.value__
+        $errorDetail += " (HTTP $statusCode)"
     }
     if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
-        $errorDetail = $_.ErrorDetails.Message
-    }
-
-    if ($statusCode) {
-        $errorMsg += " (HTTP $statusCode)"
-    }
-    if ($errorDetail) {
-        $errorMsg += " — API response: $errorDetail"
+        $errorDetail += " — API response: $($_.ErrorDetails.Message)"
     }
     elseif ($_.Exception.Message) {
-        $errorMsg += " — $($_.Exception.Message)"
+        $errorDetail += " — $($_.Exception.Message)"
     }
 
-    Write-Warning $errorMsg
+    Write-Warning "$errorHeader$errorDetail"
 }
 
 # Always exit with success
