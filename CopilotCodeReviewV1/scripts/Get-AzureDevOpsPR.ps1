@@ -86,7 +86,10 @@ param(
     [string]$OutputFile
 )
 
-#region Helper Functions
+# Dot-source common helper functions
+. "$PSScriptRoot\Common.ps1"
+
+#region Local Helper Functions (not in Common.ps1)
 
 function Write-Output-Line {
     param(
@@ -96,11 +99,19 @@ function Write-Output-Line {
     )
     
     if ($script:OutputToFile) {
+        if ($null -eq $script:OutputLines) { $script:OutputLines = @() }
+        
         if ($NoNewline) {
-            $script:OutputBuilder.Append($Message) | Out-Null
+            # For NoNewline, we append to the last line if possible
+            if ($script:OutputLines.Count -eq 0) {
+                $script:OutputLines += $Message
+            } else {
+                $lastIdx = $script:OutputLines.Count - 1
+                $script:OutputLines[$lastIdx] += $Message
+            }
         }
         else {
-            $script:OutputBuilder.AppendLine($Message) | Out-Null
+            $script:OutputLines += $Message
         }
     }
     
@@ -109,71 +120,6 @@ function Write-Output-Line {
     }
     else {
         Write-Host $Message -ForegroundColor $ForegroundColor
-    }
-}
-
-function Get-AuthorizationHeader {
-    param(
-        [string]$Token,
-        [string]$AuthType = "Basic"
-    )
-    
-    if ($AuthType -eq "Bearer") {
-        return @{
-            Authorization = "Bearer $Token"
-            "Content-Type" = "application/json"
-        }
-    }
-    else {
-        $base64Auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$Token"))
-        return @{
-            Authorization = "Basic $base64Auth"
-            "Content-Type" = "application/json"
-        }
-    }
-}
-
-function Invoke-AzureDevOpsApi {
-    param(
-        [string]$Uri,
-        [hashtable]$Headers
-    )
-    
-    try {
-        $response = Invoke-RestMethod -Uri $Uri -Headers $Headers -Method Get -ErrorAction Stop
-        return $response
-    }
-    catch {
-        $statusCode = $null
-        $errorDetail = $null
-
-        if ($_.Exception.Response) {
-            $statusCode = $_.Exception.Response.StatusCode.value__
-        }
-        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
-            $errorDetail = $_.ErrorDetails.Message
-        }
-
-        # Build a descriptive error message with all available context
-        $baseMsg = "Azure DevOps API error"
-        if ($statusCode) {
-            $baseMsg += " (HTTP $statusCode)"
-        }
-        $baseMsg += " calling GET $Uri"
-
-        if ($statusCode -eq 401) {
-            Write-Error "$baseMsg — Authentication failed. Please verify your token is valid and has appropriate permissions. API response: $errorDetail"
-        }
-        elseif ($statusCode -eq 404) {
-            Write-Error "$baseMsg — Resource not found. Please verify the organization, project, and repository names. API response: $errorDetail"
-        }
-        elseif ($statusCode) {
-            Write-Error "$baseMsg — API response: $errorDetail"
-        }
-        else {
-            Write-Error "$baseMsg — $($_.Exception.Message)"
-        }
-        return $null
     }
 }
 
@@ -202,7 +148,7 @@ function Invoke-AzureDevOpsApiPaginated {
         }
         
         $paginatedUri = "$BaseUri$separator`$top=$PageSize&`$skip=$skip"
-        $response = Invoke-AzureDevOpsApi -Uri $paginatedUri -Headers $Headers
+        $response = Invoke-AzureDevOpsApi -Uri $paginatedUri -Headers $headers
         
         if ($null -eq $response -or $null -eq $response.value) {
             break
@@ -235,22 +181,6 @@ function Invoke-AzureDevOpsApiPaginated {
     return @{ value = $allResults; count = $allResults.Count }
 }
 
-function Format-DateForDisplay {
-    param([string]$DateString)
-    
-    if ([string]::IsNullOrEmpty($DateString)) {
-        return "N/A"
-    }
-    
-    try {
-        $date = [DateTime]::Parse($DateString)
-        return $date.ToString("yyyy-MM-dd HH:mm")
-    }
-    catch {
-        return $DateString
-    }
-}
-
 function Get-BranchShortName {
     param([string]$RefName)
     
@@ -271,8 +201,8 @@ function Get-ReviewersSummary {
     $reviewerInfo = $Reviewers | ForEach-Object {
         $vote = switch ($_.vote) {
             10 { "[Approved]" }
-            5  { "[Approved with suggestions]" }
-            0  { "[No vote]" }
+            5 { "[Approved with suggestions]" }
+            0 { "[No vote]" }
             -5 { "[Waiting]" }
             -10 { "[Rejected]" }
             default { "[Unknown]" }
@@ -289,7 +219,7 @@ function Get-ReviewersSummary {
 
 # Initialize output handling
 $script:OutputToFile = -not [string]::IsNullOrEmpty($OutputFile)
-$script:OutputBuilder = [System.Text.StringBuilder]::new()
+$script:OutputLines = @()
 
 $headers = Get-AuthorizationHeader -Token $Token -AuthType $AuthType
 $baseUrl = "$CollectionUri/$Project/_apis"
@@ -299,34 +229,7 @@ $apiVersion = "api-version=7.1"
 if ($Id -gt 0) {
     Write-Host "`nRetrieving details for Pull Request #$Id..." -ForegroundColor Cyan
     
-    # First, we need to find the PR across repositories if repository is not specified
-    if ([string]::IsNullOrEmpty($Repository)) {
-        # Search for the PR across all repositories in the project (with pagination)
-        $searchUrl = "$baseUrl/git/pullrequests?searchCriteria.status=all&$apiVersion"
-        
-        # Use early termination to stop as soon as we find the target PR
-        $targetPrId = $Id
-        $stopCondition = {
-            param($results)
-            $results | Where-Object { $_.pullRequestId -eq $targetPrId } | Select-Object -First 1
-        }
-        
-        $allPRs = Invoke-AzureDevOpsApiPaginated -BaseUri $searchUrl -Headers $headers -StopCondition $stopCondition
-        
-        if ($null -eq $allPRs -or $null -eq $allPRs.value -or $allPRs.value.Count -eq 0) {
-            Write-Warning "Pull Request #$Id not found in project '$Project'."
-            exit 0
-        }
-        
-        $targetPR = $allPRs.value | Where-Object { $_.pullRequestId -eq $Id } | Select-Object -First 1
-        
-        if ($null -eq $targetPR) {
-            Write-Warning "Pull Request #$Id not found in project '$Project'."
-            exit 0
-        }
-        
-        $Repository = $targetPR.repository.name
-    }
+    $Repository = Get-AzureDevOpsRepository -Repository $Repository -CollectionUri $CollectionUri -Project $Project -PrId $Id -Headers $headers
     
     # Write discovered repository name to a file so that the Node runner knows what repository it is using
     if ($script:OutputToFile) {
@@ -391,8 +294,8 @@ if ($Id -gt 0) {
         foreach ($reviewer in $pr.reviewers) {
             $voteDisplay = switch ($reviewer.vote) {
                 10 { "Approved"; "Green" }
-                5  { "Approved with suggestions"; "Yellow" }
-                0  { "No vote"; "Gray" }
+                5 { "Approved with suggestions"; "Yellow" }
+                0 { "No vote"; "Gray" }
                 -5 { "Waiting for author"; "Yellow" }
                 -10 { "Rejected"; "Red" }
                 default { "Unknown"; "White" }
@@ -444,13 +347,13 @@ if ($Id -gt 0) {
             foreach ($thread in $commentThreads) {
                 $firstComment = $thread.comments | Select-Object -First 1
                 $threadStatus = switch ($thread.status) {
-                    "active"   { @{ Text = "Active"; Color = "Yellow" } }
-                    "fixed"    { @{ Text = "Resolved"; Color = "Green" } }
-                    "closed"   { @{ Text = "Closed"; Color = "Green" } }
-                    "wontFix"  { @{ Text = "Won't Fix"; Color = "DarkGray" } }
-                    "pending"  { @{ Text = "Pending"; Color = "Cyan" } }
+                    "active" { @{ Text = "Active"; Color = "Yellow" } }
+                    "fixed" { @{ Text = "Resolved"; Color = "Green" } }
+                    "closed" { @{ Text = "Closed"; Color = "Green" } }
+                    "wontFix" { @{ Text = "Won't Fix"; Color = "DarkGray" } }
+                    "pending" { @{ Text = "Pending"; Color = "Cyan" } }
                     "byDesign" { @{ Text = "By Design"; Color = "DarkGray" } }
-                    default    { @{ Text = $thread.status; Color = "White" } }
+                    default { @{ Text = $thread.status; Color = "White" } }
                 }
                 
                 Write-Output-Line ""
@@ -648,7 +551,7 @@ else {
     $tableOutput = $tableData | Format-Table -AutoSize -Wrap | Out-String
     Write-Host $tableOutput
     if ($script:OutputToFile) {
-        $script:OutputBuilder.AppendLine($tableOutput) | Out-Null
+        $script:OutputLines += $tableOutput
     }
     
     Write-Output-Line "`nTip: Use -Id <number> parameter to view detailed information for a specific PR." -ForegroundColor DarkGray
@@ -661,7 +564,7 @@ if ($script:OutputToFile) {
         if (-not [string]::IsNullOrEmpty($outputDir) -and -not (Test-Path $outputDir)) {
             New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
         }
-        $script:OutputBuilder.ToString() | Out-File -FilePath $OutputFile -Encoding UTF8
+        $script:OutputLines | Out-File -FilePath $OutputFile -Encoding UTF8
         Write-Host "`nOutput written to: $OutputFile" -ForegroundColor Green
     }
     catch {
