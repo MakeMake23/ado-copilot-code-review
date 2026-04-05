@@ -9,7 +9,8 @@
     "package:dev": "pwsh -File build-dev.ps1",
     "test:pwsh": "pwsh -NoProfile -Command \"Invoke-Pester -Path CopilotCodeReviewV1/scripts/tests -Output Detailed\"",
     "test:ts": "cd CopilotCodeReviewV1 && npm run test:ts",
-    "test": "npm run test:ts && npm run test:pwsh"
+    "test": "npm run test:ts && npm run test:pwsh",
+    "bump": "node scripts/bump-version.js"
   },
   "repository": {
     "type": "git",
