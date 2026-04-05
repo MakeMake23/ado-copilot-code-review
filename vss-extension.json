@@ -3,7 +3,7 @@
   "manifestVersion": 1,
   "id": "ado-copilot-code-review-ang031",
   "name": "Copilot Code Review (ANG031-Diyar)",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "ANG031-Diyar",
   "public": false,
   "targets": [
@@ -12,7 +12,9 @@
     }
   ],
   "description": "Automated pull request code reviews powered by the official GitHub Copilot CLI. Get AI-driven feedback on your PRs directly in Azure DevOps.",
-  "categories": ["Azure Pipelines"],
+  "categories": [
+    "Azure Pipelines"
+  ],
   "tags": [
     "code review",
     "copilot",
@@ -57,7 +59,9 @@
     {
       "id": "copilot-code-review-task",
       "type": "ms.vss-distributed-task.task",
-      "targets": ["ms.vss-distributed-task.tasks"],
+      "targets": [
+        "ms.vss-distributed-task.tasks"
+      ],
       "properties": {
         "name": "CopilotCodeReviewV1"
       }
