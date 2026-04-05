@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc",
-    "test": "mocha tests/_suite.js"
+    "test:ts": "mocha tests/_suite.js",
+    "test:pwsh": "pwsh -NoProfile -Command \"Invoke-Pester -Path scripts/tests -Output Detailed\"",
+    "test": "npm run test:ts && npm run test:pwsh"
   },
   "repository": {
     "type": "git",
@@ -25,8 +27,11 @@
     "production": "^0.0.2"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.6",
     "@types/node": "^20.19.27",
     "@types/q": "^1.5.8",
+    "azure-pipelines-task-lib": "^4.17.3",
+    "mocha": "^10.2.0",
     "typescript": "^5.3.0"
   }
 }
