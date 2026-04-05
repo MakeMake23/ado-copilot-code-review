@@ -35,3 +35,6 @@ Iteration_Details.txt
 CopilotCodeReviewDevV1/*
 !CopilotCodeReviewDevV1/task.json
 tmpclaude*
+
+# Scripts
+!scripts/*.js
