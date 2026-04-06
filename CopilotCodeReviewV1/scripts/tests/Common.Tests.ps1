@@ -43,6 +43,36 @@ Describe "Common PowerShell Functions" {
             $result | Should -BeNullOrEmpty
         }
     }
+
+    Context "Invoke-AzureDevOpsApiPaginated" {
+        BeforeEach {
+            Mock Invoke-AzureDevOpsApi { 
+                param($Uri, $Headers, $Method)
+                if ($Uri -match "skip=0") {
+                    return [PSCustomObject]@{ value = @([PSCustomObject]@{ id = 1 }, [PSCustomObject]@{ id = 2 }) }
+                }
+                elseif ($Uri -match "skip=2") {
+                    return [PSCustomObject]@{ value = @([PSCustomObject]@{ id = 3 }) }
+                }
+                return [PSCustomObject]@{ value = @() }
+            }
+        }
+        
+        It "should terminate early when a stop condition matches" {
+            $stopCondition = { param($batch) return $batch | Where-Object { $_.id -eq 2 } | Select-Object -First 1 }.GetNewClosure()
+            $result = Invoke-AzureDevOpsApiPaginated -BaseUri "http://test" -Headers @{} -PageSize 2 -StopCondition $stopCondition
+            $result.earlyTermination | Should -Be $true
+            $result.value[0].id | Should -Be 2
+        }
+        
+        It "should return all results across pages when no stop condition matches" {
+            $result = Invoke-AzureDevOpsApiPaginated -BaseUri "http://test" -Headers @{} -PageSize 2
+            $result.earlyTermination | Should -Be $false
+            $result.count | Should -Be 3
+            $result.value[0].id | Should -Be 1
+            $result.value[2].id | Should -Be 3
+        }
+    }
     
     Context "Get-AzureDevOpsRepository" {
         BeforeEach {
@@ -70,6 +100,28 @@ Describe "Common PowerShell Functions" {
         It "should auto-discover repository name if an empty string is passed" {
             $result = Get-AzureDevOpsRepository -Repository "" -PrId 123 -CollectionUri "http://test" -Project "Project" -Headers @{}
             $result | Should -Be "Repo-123"
+        }
+
+        It "should throw an error if the PR is not found" {
+            Mock Invoke-AzureDevOpsApi { 
+                return [PSCustomObject]@{ value = @([PSCustomObject]@{ pullRequestId = 999; repository = [PSCustomObject]@{ name = "OtherRepo" } }) }
+            }
+            
+            { Get-AzureDevOpsRepository -Repository "" -PrId 123 -CollectionUri "http://test" -Project "Project" -Headers @{} } | Should -Throw
+        }
+
+        It "should correctly identify the PR when multiple results exist in the search" {
+             Mock Invoke-AzureDevOpsApi { 
+                return [PSCustomObject]@{ 
+                    value = @(
+                        [PSCustomObject]@{ pullRequestId = 123; repository = [PSCustomObject]@{ name = "Repo-123" } },
+                        [PSCustomObject]@{ pullRequestId = 456; repository = [PSCustomObject]@{ name = "Repo-456" } }
+                    ) 
+                } 
+            }
+
+            $result = Get-AzureDevOpsRepository -Repository "" -PrId 456 -CollectionUri "http://test" -Project "Project" -Headers @{}
+            $result | Should -Be "Repo-456"
         }
     }
     
