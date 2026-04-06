@@ -161,9 +161,9 @@ function Invoke-AzureDevOpsApiPaginated {
             break
         }
         
-    } while ($returnedCount -eq $PageSize)
+    } while ($returnedCount -gt 0 -and $returnedCount -eq $PageSize)
     
-    return @{ value = @($allResults); count = $allResults.Count; earlyTermination = $false }
+    return @{ value = $allResults; count = $allResults.Count; earlyTermination = $false }
 }
 
 function Get-AzureDevOpsRepository {
@@ -195,23 +195,30 @@ function Get-AzureDevOpsRepository {
             $stopCondition = {
                 param($batch)
                 return $batch | Where-Object { $_.pullRequestId -eq $PrId } | Select-Object -First 1
-            }
+            }.GetNewClosure()
             
             $response = Invoke-AzureDevOpsApiPaginated -BaseUri $searchUrl -Headers $Headers -StopCondition $stopCondition
             
-            if ($null -eq $response -or $null -eq $response.value -or $response.value.Count -eq 0) {
+            if ($null -eq $response -or $null -eq $response.value -or $response.value.Count -eq 0 -or $response.earlyTermination -eq $false) {
                 Write-Error "Active Pull Request #$PrId not found in project '$Project'. Cannot auto-discover repository."
-                exit 1
+                throw "Active Pull Request #$PrId not found"
             }
             
             $targetPR = $response.value[0]
+            
+            if ($null -eq $targetPR.repository -or [string]::IsNullOrWhiteSpace($targetPR.repository.name)) {
+                Write-Host "DEBUG: PR object structure" -ForegroundColor Gray
+                $targetPR | ConvertTo-Json -Depth 2 | Write-Host
+                Write-Error "Could not find repository name for Pull Request #$PrId."
+                throw "Could not find repository name"
+            }
             
             $Repository = $targetPR.repository.name
             Write-Host "Auto-discovered repository: $Repository" -ForegroundColor Green
         }
         catch {
             Write-Error "Failed to auto-discover repository for Pull Request #$($PrId): $($_.Exception.Message)"
-            exit 1
+            throw $_.Exception.Message
         }
     }
     
