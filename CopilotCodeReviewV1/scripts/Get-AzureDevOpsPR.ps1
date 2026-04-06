@@ -105,7 +105,8 @@ function Write-Output-Line {
             # For NoNewline, we append to the last line if possible
             if ($script:OutputLines.Count -eq 0) {
                 $script:OutputLines += $Message
-            } else {
+            }
+            else {
                 $lastIdx = $script:OutputLines.Count - 1
                 $script:OutputLines[$lastIdx] += $Message
             }
@@ -121,64 +122,6 @@ function Write-Output-Line {
     else {
         Write-Host $Message -ForegroundColor $ForegroundColor
     }
-}
-
-function Invoke-AzureDevOpsApiPaginated {
-    param(
-        [string]$BaseUri,
-        [hashtable]$Headers,
-        [int]$PageSize = 250,
-        [int]$MaxResults = 0,
-        [scriptblock]$StopCondition = $null
-    )
-    
-    $allResults = @()
-    $skip = 0
-    $page = 1
-    
-    # Determine the separator for query parameters
-    $separator = if ($BaseUri -match '\?') { '&' } else { '?' }
-    
-    do {
-        if ($page -eq 1) {
-            Write-Host "Fetching pull requests (page $page)..." -ForegroundColor DarkGray
-        }
-        else {
-            Write-Host "Fetching pull requests (page $page, $($allResults.Count) retrieved so far)..." -ForegroundColor DarkGray
-        }
-        
-        $paginatedUri = "$BaseUri$separator`$top=$PageSize&`$skip=$skip"
-        $response = Invoke-AzureDevOpsApi -Uri $paginatedUri -Headers $headers
-        
-        if ($null -eq $response -or $null -eq $response.value) {
-            break
-        }
-        
-        $returnedCount = $response.value.Count
-        
-        # Check stop condition after each page (for early termination)
-        if ($null -ne $StopCondition) {
-            $match = & $StopCondition $response.value
-            if ($null -ne $match) {
-                Write-Host "Found target on page $page." -ForegroundColor DarkGray
-                return @{ value = @($match); count = 1; earlyTermination = $true }
-            }
-        }
-        
-        $allResults += $response.value
-        $skip += $PageSize
-        $page++
-        
-        # Check if we should stop due to MaxResults
-        if ($MaxResults -gt 0 -and $allResults.Count -ge $MaxResults) {
-            $allResults = $allResults | Select-Object -First $MaxResults
-            break
-        }
-        
-    } while ($returnedCount -eq $PageSize)  # Continue if we got a full page
-    
-    Write-Host "Retrieved $($allResults.Count) pull requests total." -ForegroundColor DarkGray
-    return @{ value = $allResults; count = $allResults.Count }
 }
 
 function Get-BranchShortName {
