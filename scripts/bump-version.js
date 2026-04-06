@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
+
 
 const versionArg = process.argv[2] || 'patch';
 
@@ -92,3 +94,13 @@ filesToUpdate.forEach(file => {
 });
 
 console.log(`\nAll files updated to version ${newVersion} successfully.`);
+
+try {
+    console.log(`\nCommitting changes...`);
+    execSync('git add .', { stdio: 'inherit' });
+    execSync(`git commit -m "chore: bump to v${newVersion}"`, { stdio: 'inherit' });
+    console.log(`✅ Committed successfully: chore: bump to v${newVersion}`);
+} catch (error) {
+    console.error(`\n❌ Failed to commit: ${error.message}`);
+    console.log('You may need to commit manually.');
+}
