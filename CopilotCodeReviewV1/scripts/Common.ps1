@@ -102,6 +102,70 @@ function Invoke-AzureDevOpsApi {
     }
 }
 
+function Invoke-AzureDevOpsApiPaginated {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BaseUri,
+        
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Headers,
+        
+        [Parameter(Mandatory = $false)]
+        [int]$PageSize = 250,
+        
+        [Parameter(Mandatory = $false)]
+        [int]$MaxResults = 0,
+        
+        [Parameter(Mandatory = $false)]
+        [scriptblock]$StopCondition = $null
+    )
+    
+    $allResults = @()
+    $skip = 0
+    $page = 1
+    
+    # Determine the separator for query parameters
+    $separator = if ($BaseUri -match '\?') { '&' } else { '?' }
+    
+    do {
+        if ($page -eq 1) {
+            Write-Host "Fetching results (page $page)..." -ForegroundColor DarkGray
+        }
+        else {
+            Write-Host "Fetching results (page $page, $($allResults.Count) retrieved so far)..." -ForegroundColor DarkGray
+        }
+        
+        $paginatedUri = "$BaseUri$separator`$top=$PageSize&`$skip=$skip"
+        $response = Invoke-AzureDevOpsApi -Uri $paginatedUri -Headers $Headers -SilentOnFailure
+        
+        if ($null -eq $response -or $null -eq $response.value) {
+            break
+        }
+        
+        $returnedCount = $response.value.Count
+        
+        if ($null -ne $StopCondition) {
+            $match = & $StopCondition $response.value
+            if ($null -ne $match) {
+                Write-Host "Found target on page $page." -ForegroundColor DarkGray
+                return @{ value = @($match); count = 1; earlyTermination = $true }
+            }
+        }
+        
+        $allResults += $response.value
+        $skip += $PageSize
+        $page++
+        
+        if ($MaxResults -gt 0 -and $allResults.Count -ge $MaxResults) {
+            $allResults = $allResults | Select-Object -First $MaxResults
+            break
+        }
+        
+    } while ($returnedCount -eq $PageSize)
+    
+    return @{ value = @($allResults); count = $allResults.Count; earlyTermination = $false }
+}
+
 function Get-AzureDevOpsRepository {
     param(
         [Parameter(Mandatory = $false)]
@@ -124,22 +188,23 @@ function Get-AzureDevOpsRepository {
     if ([string]::IsNullOrWhiteSpace($Repository) -or $Repository -eq "undefined") {
         Write-Host "Repository not specified for PR #$PrId. Attempting to auto-discover..." -ForegroundColor Cyan
         
-        # Search for the PR across all repositories in the project
-        $searchUrl = "$CollectionUri/$Project/_apis/git/pullrequests?searchCriteria.status=all&api-version=7.1"
+        # Search for the active PR across all repositories in the project
+        $searchUrl = "$CollectionUri/$Project/_apis/git/pullrequests?searchCriteria.status=active&api-version=7.1"
         
         try {
-            $response = Invoke-AzureDevOpsApi -Uri $searchUrl -Headers $Headers -Method Get -ErrorAction Stop -SilentOnFailure
-            if ($null -eq $response -or $null -eq $response.value) {
-                Write-Error "Pull Request #$PrId not found in project '$Project'. Cannot auto-discover repository."
+            $stopCondition = {
+                param($batch)
+                return $batch | Where-Object { $_.pullRequestId -eq $PrId } | Select-Object -First 1
+            }
+            
+            $response = Invoke-AzureDevOpsApiPaginated -BaseUri $searchUrl -Headers $Headers -StopCondition $stopCondition
+            
+            if ($null -eq $response -or $null -eq $response.value -or $response.value.Count -eq 0) {
+                Write-Error "Active Pull Request #$PrId not found in project '$Project'. Cannot auto-discover repository."
                 exit 1
             }
             
-            $targetPR = $response.value | Where-Object { $_.pullRequestId -eq $PrId } | Select-Object -First 1
-            
-            if ($null -eq $targetPR) {
-                Write-Error "Pull Request #$PrId not found in project '$Project'. Cannot auto-discover repository."
-                exit 1
-            }
+            $targetPR = $response.value[0]
             
             $Repository = $targetPR.repository.name
             Write-Host "Auto-discovered repository: $Repository" -ForegroundColor Green
