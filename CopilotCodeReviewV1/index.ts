@@ -211,8 +211,23 @@ async function run(): Promise<void> {
     process.env["PRID"] = pullRequestId;
 
     const scriptsDir = path.join(__dirname, "scripts");
+
+    const inputWorkingDirectory = tl.getPathInput("workingDirectory", false);
     const workingDirectory =
-      tl.getVariable("System.DefaultWorkingDirectory") || process.cwd();
+      inputWorkingDirectory ||
+      tl.getVariable("System.DefaultWorkingDirectory") ||
+      process.cwd();
+
+    if (!fs.existsSync(workingDirectory)) {
+      tl.setResult(
+        tl.TaskResult.Failed,
+        `Working directory not found: ${workingDirectory}. ` +
+          "Ensure the repository is checked out correctly in the pipeline.",
+      );
+      return;
+    }
+
+    console.log(`Using working directory: ${workingDirectory}`);
 
     // Step 1: Install GitHub Copilot CLI if not present
     console.log("\n[Step 1/4] Checking GitHub Copilot CLI installation...");
@@ -229,15 +244,19 @@ async function run(): Promise<void> {
     const prDetailsScript = path.join(scriptsDir, "Get-AzureDevOpsPR.ps1");
     const prDetailsOutput = path.join(workingDirectory, "PR_Details.txt");
 
-    await runPowerShellScript(prDetailsScript, [
-      `-Token "${azureDevOpsToken}"`,
-      `-AuthType "${azureDevOpsAuthType}"`,
-      `-CollectionUri "${resolvedCollectionUri}"`,
-      `-Project "${project}"`,
-      `-Repository "${repository}"`,
-      `-Id ${pullRequestId}`,
-      `-OutputFile "${prDetailsOutput}"`,
-    ]);
+    await runPowerShellScript(
+      prDetailsScript,
+      [
+        `-Token "${azureDevOpsToken}"`,
+        `-AuthType "${azureDevOpsAuthType}"`,
+        `-CollectionUri "${resolvedCollectionUri}"`,
+        `-Project "${project}"`,
+        `-Repository "${repository}"`,
+        `-Id ${pullRequestId}`,
+        `-OutputFile "${prDetailsOutput}"`,
+      ],
+      workingDirectory,
+    );
     console.log(`PR details saved to: ${prDetailsOutput}`);
 
     // Read the repository name from the file written by Get-AzureDevOpsPR.ps1 if it did auto-discovery
@@ -262,15 +281,19 @@ async function run(): Promise<void> {
       "Iteration_Details.txt",
     );
 
-    await runPowerShellScript(prChangesScript, [
-      `-Token "${azureDevOpsToken}"`,
-      `-AuthType "${azureDevOpsAuthType}"`,
-      `-CollectionUri "${resolvedCollectionUri}"`,
-      `-Project "${project}"`,
-      `-Repository "${repository}"`,
-      `-Id ${pullRequestId}`,
-      `-OutputFile "${iterationDetailsOutput}"`,
-    ]);
+    await runPowerShellScript(
+      prChangesScript,
+      [
+        `-Token "${azureDevOpsToken}"`,
+        `-AuthType "${azureDevOpsAuthType}"`,
+        `-CollectionUri "${resolvedCollectionUri}"`,
+        `-Project "${project}"`,
+        `-Repository "${repository}"`,
+        `-Id ${pullRequestId}`,
+        `-OutputFile "${iterationDetailsOutput}"`,
+      ],
+      workingDirectory,
+    );
     console.log(`Iteration details saved to: ${iterationDetailsOutput}`);
 
     // Read the iteration ID from the file written by Get-AzureDevOpsPRChanges.ps1
@@ -523,6 +546,7 @@ async function installCopilotCli(): Promise<void> {
 async function runPowerShellScript(
   scriptPath: string,
   args: string[],
+  cwd: string,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const command = `pwsh -NoProfile -File "${scriptPath}" ${args.join(" ")}`;
@@ -532,6 +556,7 @@ async function runPowerShellScript(
       shell: true,
       stdio: "inherit",
       env: envVars,
+      cwd: cwd,
     });
 
     psProcess.on("close", (code) => {
