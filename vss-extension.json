@@ -3,7 +3,7 @@
   "manifestVersion": 1,
   "id": "ado-copilot-code-review-ang031",
   "name": "Copilot Code Review (ANG031-Diyar)",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "publisher": "ANG031-Diyar",
   "public": false,
   "targets": [
